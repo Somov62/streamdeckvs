@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
+using System.Text.RegularExpressions;
 using BarRaider.SdTools;
 using EnvDTE;
 
@@ -10,7 +11,8 @@ namespace StreamDeckVS
 {
     public static class DTEAPI
     {
-        public static IEnumerable<EnvDTE.DTE> GetDTE(int? processId = null)
+        private static readonly Regex _VsRegex = new Regex(@"^!VisualStudio\.DTE\.(?<version>\d+\.\d+):(?<processId>\d+)$", RegexOptions.Compiled);
+        public static IEnumerable<DTE> GetDTE(int? processId = null)
         {
             var dteInstances = new List<DTE>();
             IBindCtx bindCtx = null;
@@ -34,15 +36,33 @@ namespace StreamDeckVS
                 {
                     moniker[0].GetDisplayName(bindCtx, null, out var rotName);
 
-                    if (rotName.StartsWith("!VisualStudio.DTE.17.0:") || rotName.StartsWith("!VisualStudio.DTE.16.0:") || rotName.StartsWith("!VisualStudio.DTE.15.0:"))
+                    var matches = _VsRegex.Matches(rotName);
+                    if (matches.Count > 0)
                     {
+                        /*
+                         * The ROT name is in the format of !VisualStudio.DTE.{version}:{processId}.
+                         * We can use this to filter out the DTE instances that are not for Visual Studio 2017 and later.
+                         * We don't need to use int.TryParse here because the regex will only match valid integers, so we can safely use int.Parse.
+                         */
+                        var match = matches[0];
+                        var version = int.Parse(match.Groups["version"].Value);
+                        var rotProcessId = int.Parse(match.Groups["processId"].Value);
+
+                        if (version < 15)
+                        {
+                            /*
+                             * We only support Visual Studio 2017 and later (version 15.0+).
+                             */
+                            continue;
+                        }
+
                         Marshal.ThrowExceptionForHR(runningObjects.GetObject(moniker[0], out var runningObject));
 
-                        if (runningObject is EnvDTE.DTE dte)
+                        if (runningObject is DTE dte)
                         {
                             Logger.Instance.LogMessage(TracingLevel.INFO, $"ROT Object Found {rotName}");
 
-                            if (processId.HasValue && int.TryParse(rotName.Substring(23), out var rotProcessId) && rotProcessId == processId)
+                            if (processId.HasValue && rotProcessId == processId)
                             {
                                 foundByProcessId = true;
 
@@ -59,7 +79,7 @@ namespace StreamDeckVS
 
                 if (processId.HasValue && !foundByProcessId)
                 {
-                    return Enumerable.Empty<EnvDTE.DTE>();
+                    return Enumerable.Empty<DTE>();
                 }
 
                 return dteInstances.AsEnumerable();
