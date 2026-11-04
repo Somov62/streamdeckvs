@@ -87,7 +87,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <!-- Elgato-specific postbuild (kills StreamDeck.exe, packs with DistributionTool). Disabled by default; use deploy.ps1 for fifine Control Deck. Enable with /p:EnableElgatoPostBuild=true -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(EnableElgatoPostBuild)' == 'true'">
     <Exec Command="powershell.exe -NonInteractive -ExecutionPolicy Unrestricted -Command &quot;. '$(SolutionDir)postbuild.ps1' -targetName '$(TargetName)' -outputDir '$(ProjectDir)$(OutDir)'&quot;" />
   </Target>
 </Project>

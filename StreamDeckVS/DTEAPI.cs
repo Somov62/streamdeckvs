@@ -11,7 +11,7 @@ namespace StreamDeckVS
 {
     public static class DTEAPI
     {
-        private static readonly Regex _VsRegex = new Regex(@"^!VisualStudio\.DTE\.(?<version>\d+\.\d+):(?<processId>\d+)$", RegexOptions.Compiled);
+        private static readonly Regex _VsRegex = new Regex(@"^!VisualStudio\.DTE\.(?<major>\d+)\.\d+:(?<processId>\d+)$", RegexOptions.Compiled);
         public static IEnumerable<DTE> GetDTE(int? processId = null)
         {
             var dteInstances = new List<DTE>();
@@ -45,7 +45,7 @@ namespace StreamDeckVS
                          * We don't need to use int.TryParse here because the regex will only match valid integers, so we can safely use int.Parse.
                          */
                         var match = matches[0];
-                        var version = int.Parse(match.Groups["version"].Value);
+                        var version = int.Parse(match.Groups["major"].Value); // "18.0" -> 18; int.Parse("18.0") would throw FormatException
                         var rotProcessId = int.Parse(match.Groups["processId"].Value);
 
                         if (version < 15)
