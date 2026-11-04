@@ -28,22 +28,43 @@ namespace StreamDeckVS
                 }
                 else
                 {
-                    DTE dte = DTEAPI.GetDTE().FirstOrDefault(m => IsProcessAttachedToDebug(processId, m));
+                    Logger.Instance.LogMessage(TracingLevel.INFO, $"Foreground is not Visual Studio: {GetProcessName(processId)} ({processId})");
 
+                    var instances = DTEAPI.GetDTE().ToList();
+
+                    // 1. Foreground window belongs to the debugged process itself.
+                    DTE dte = instances.FirstOrDefault(m => IsProcessAttachedToDebug(processId, m));
+
+                    // 2. Console app started through VS debug console (pipe in command line).
                     if (dte is null)
                     {
                         string processCommandLine = GetProcessCommandLine(processId);
 
                         if (IsLinkedByPipe(processCommandLine))
                         {
-                            ExecuteCommand(DTEAPI.GetDTE(GetVisualStudioPIDFromPipeLink(processCommandLine))
-                                .FirstOrDefault(), settings);
+                            Logger.Instance.LogMessage(TracingLevel.INFO, "Foreground process is linked to Visual Studio by debug console pipe");
+                            dte = DTEAPI.GetDTE(GetVisualStudioPIDFromPipeLink(processCommandLine)).FirstOrDefault();
                         }
                     }
-                    else
+
+                    // 3. Foreground window is owned by another process (Windows Terminal / conhost for console apps,
+                    //    a browser for web projects, a launcher, ...): use the Visual Studio instance that is debugging.
+                    if (dte is null)
                     {
-                        ExecuteCommand(dte, settings);
+                        dte = instances.FirstOrDefault(IsDebugging);
+
+                        if (dte != null)
+                        {
+                            Logger.Instance.LogMessage(TracingLevel.INFO, "Using the Visual Studio instance that is in debug mode");
+                        }
                     }
+
+                    if (dte is null)
+                    {
+                        Logger.Instance.LogMessage(TracingLevel.WARN, $"No Visual Studio instance for foreground process {processId}, command '{settings.Command}' skipped");
+                    }
+
+                    ExecuteCommand(dte, settings);
                 }
             }
             catch (Exception ex)
@@ -74,7 +95,7 @@ namespace StreamDeckVS
             return 0;
         }
 
-        private bool IsLinkedByPipe(string arguments) => arguments.Contains(@"\\.\pipe\Microsoft-VisualStudio-Debug-Console-");
+        private bool IsLinkedByPipe(string arguments) => arguments != null && arguments.Contains(@"\\.\pipe\Microsoft-VisualStudio-Debug-Console-");
 
         private void ExecuteCommand(DTE dte, ExecuteCommandSettings settings) => dte?.ExecuteCommand(settings.Command, settings.CommandArgs ?? "");
 
@@ -82,6 +103,31 @@ namespace StreamDeckVS
         {
             return System.Diagnostics.Process.GetProcessById(processId)
                 .ProcessName.Equals("devenv", StringComparison.InvariantCultureIgnoreCase);
+        }
+
+        private static bool IsDebugging(DTE dte)
+        {
+            try
+            {
+                return dte.Debugger != null && dte.Debugger.CurrentMode != dbgDebugMode.dbgDesignMode;
+            }
+            catch (Exception ex)
+            {
+                Logger.Instance.LogMessage(TracingLevel.WARN, $"Could not read debugger mode: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static string GetProcessName(int processId)
+        {
+            try
+            {
+                return System.Diagnostics.Process.GetProcessById(processId).ProcessName;
+            }
+            catch
+            {
+                return "?";
+            }
         }
 
         private static bool IsProcessAttachedToDebug(int processId, DTE dte)
